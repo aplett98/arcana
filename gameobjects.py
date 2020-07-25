@@ -13,27 +13,26 @@ class Suit(Enum):
     CONVINCER = 2
     WARRIOR = 3
 
-
 class TurnError(Exception):
     '''For when an invalid action is taken on a turn.'''
     pass
 
 
-class Player:
+class Player(object):
     def __init__(self, id):
         self.id = id
 
 
-class Deck:
+class Deck(object):
     '''This class represents the one deck in any game.'''
     def __init__(self):
         self.cards = []
         self.size = 0
-        suits = [Suit.SPY, Suit.WIZARD, Suit.CONVINCER, Suit.WARRIOR]
         card_id = 0
         for suit in suits:
             for value in range(2, 15):
-                self.cards.append(Card(value, suit, card_id))
+                new_card = suit_to_card[suit](value, card_id)
+                self.cards.append(new_card)
                 self.size += 1
                 card_id += 1
         random.shuffle(self.cards)
@@ -65,7 +64,7 @@ class Deck:
 
 
 @total_ordering
-class Card:
+class Card(object):
     '''The general class for cards in the game.'''
     def __init__(self, value, suit, id):
         self.id = id
@@ -90,7 +89,7 @@ class Card:
     def __sub__(self, other):
         new = self
         new.value -= other.value
-        new.value = new.value if new.value is >= 0 else 0
+        new.value = new.value if new.value >= 0 else 0
         return new
 
     def __lt__(self, other):
@@ -106,7 +105,7 @@ class Card:
         self.shown = True
 
 
-class Stack:
+class Stack(object):
     '''The general class for stacks of a single suit.'''
     def __init__(self, suit, owner):
         self.size = 0
@@ -114,7 +113,7 @@ class Stack:
         self.suit = suit
         self.cards = []
 
-    def do_turn_action(args, action, target_punish, self_punish):
+    def do_turn_action(self, args, action, target_punish, self_punish):
         challenged = False
         if not args.self_visible:
             challenged = args.target.decide_to_challenge()
@@ -125,11 +124,17 @@ class Stack:
         elif not args.legal and (challenged or not args.target_visible):
             self_punish(args)
 
-    def highest(self):
-        return self.cards[0]
+    def highest(self, n=None):
+        if n is None:
+            return self.cards[0]
+        elif n > 0:
+            return self.cards[:n]
 
-    def lowest(self):
-        return self.cards[self.size - 1]
+    def lowest(self, n=None):
+        if n is None:
+            return self.cards[-1]
+        elif n > 0:
+            return reversed(self.cards[-int(n):])
 
     def strength(self):
         return sum(self.cards).value
@@ -137,19 +142,9 @@ class Stack:
     def sort(self):
         self.cards.sort().reverse()
 
-    def get_crossed(self):
-        if self.size > 1:
-            new = self.highest() - self.lowest()
-            self.cards = [new]
-            self.size = 1
-
-    def get_softened(self):
-        if self.size is 1:
-            self.cards[0].soften()
-
     def add(self, card):
         card.stack = self
-        card.owner = owner
+        card.owner = self.owner
         self.cards.append(card)
         self.sort()
         self.size += 1
@@ -166,7 +161,7 @@ class Stack:
         for i, card in self.cards:
             if card is target_card:
                 self.size -= 1
-                return cards.pop(i)
+                return self.cards.pop(i)
 
     def has_hidden(self):
         for card in self.cards:
@@ -175,86 +170,88 @@ class Stack:
         return False
 
 
+class SpyCard(Card):
+    def __init__(self, value, id):
+        Card.__init__(self, value, Suit.SPY, id)
+
+    def capture(self, target_card):
+        # TODO
+        pass
+
+
 class SpyStack(Stack):
     def __init__(self, owner):
-        Stack.__init__(self, Suits.SPY, owner)
+        Stack.__init__(self, Suit.SPY, owner)
 
     def spy(self, target_card):
         if self.size < 1:
             raise TurnError('You can only spy if you have a spy card.')
         target_card.show()
 
-    def capture(self, target_card):
-        def action(a):
-            self.owner.add(a.target_obj.stack.pop_card(a.target_obj))
-            a.target_obj.show()
-            self.destroy_highest()
 
-        def target_punish(a):
-            punish_stack = a.target.choose_stack(a.target)
-            punish_stack.destroy_highest()
-
-        def self_punish(a):
-            punish_card = a.target.choose_card(self.owner)
-            a.target.add(punish_card.stack.pop_card(punish_card))
-
-        args = Args()
-        args.self_visible = self.highest().shown
-        args.target_visible = target_card.shown
-        fully_visible = self_visible and target_visible
-        args.legal = self.highest().value > target_card.value
-        args.target_obj = target_card
-        if self.size < 1:
-            raise TurnError('You can only capture if you have a spy card.')
-        if fully_visible and not args.legal:
-            raise TurnError('Your highest spy card must be stronger.')
-        self.do_turn_action(args, action, target_punish, self_punish)
-
+class WizardCard(Card):
+    def __init__(self, value, id):
+        Card.__init__(self, value, Suit.WIZARD, id)
 
 class WizardStack(Stack):
     def __init__(self, owner):
-        Stack.__init__(self, Suits.WIZARD, owner)
+        Stack.__init__(self, Suit.WIZARD, owner)
+    
+    def cross(self, target_stack):
+        # TODO
+        pass
 
-    def soften(self, target_stack, challenged):
-        if target_stack.size > 1:
-            return TurnError(
-                'You can only soften a card if it is the only card in its '
-                'stack.'
-            )
-        legal = self.strength() > target_stack.strength()
-        target = target_stack.owner
-        if legal or not challenged:
-            target_stack.get_softened()
-            if legal and challenged:
-                punish_stack = target.choose_stack(target)
-                punish_stack.destroy_highest()
-        elif not legal and challenged:
-            if self.size <= 1:
-                self.destroy_highest()
-            else:
-                self.get_crossed()
+    def soften(self, target_card):
+        # TODO
+        pass
 
-    def cross(self, target_stack, challenged):
-        if target_stack.size < 2:
-            return TurnError(
-                'You can only cross a stack if it has at least two cards.'
-            )
-        legal = self.strength() > target_stack.strength()
-        target = target_stack.owner
-        if legal or not challenged:
-            target_stack.get_crossed()
-            if legal and challenged:
-                punish_stack = target.choose_stack(target)
-                punish_stack.destroy_highest()
-        elif not legal and challenged:
-            if self.size <= 1:
-                self.destroy_highest()
-            else:
-                self.get_crossed()
+
+class ConvincerCard(Card):
+    def __init__(self, value, id):
+        Card.__init__(self, value, Suit.CONVINCER, id)
+    
+    def cure(self, target_card):
+        # TODO
+        pass
 
 
 class ConvincerStack(Stack):
     def __init__(self, owner):
         Stack.__init__(self, Suit.CONVINCER, owner)
 
-    def
+    def convince(self, target_card):
+        # TODO
+        pass
+
+
+class WarriorCard(Card):
+    def __init__(self, value, id):
+        Card.__init__(self, value, Suit.WARRIOR, id)
+
+
+class WarriorStack(Stack):
+    def __init__(self, owner):
+        Stack.__init__(self, Suit.WARRIOR, owner)
+    
+    def attack(self, target_card):
+        # TODO
+        pass
+
+    def martyr(self):
+        # TODO
+        pass
+
+
+suits = [Suit.SPY, Suit.WIZARD, Suit.CONVINCER, Suit.WARRIOR]
+suit_to_card = {
+    Suit.SPY: SpyCard,
+    Suit.WIZARD: WizardCard,
+    Suit.CONVINCER: ConvincerCard,
+    Suit.WARRIOR: WarriorCard
+}
+suit_to_stack = {
+    Suit.SPY: SpyStack,
+    Suit.WIZARD: WizardStack,
+    Suit.CONVINCER: ConvincerStack,
+    Suit.WARRIOR: WarriorStack
+}
