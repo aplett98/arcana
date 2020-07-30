@@ -1,13 +1,48 @@
-from enum import Enum
+from enum import IntEnum
 import random
 from functools import total_ordering
 
 
-class Suit(Enum):
+class Suit(IntEnum):
     SPY = 0
     WIZARD = 1
     CONVINCER = 2
     WARRIOR = 3
+
+    def __str__(self):
+        return {
+            Suit.SPY: 'spy',
+            Suit.WIZARD: 'wizard',
+            Suit.CONVINCER: 'convincer',
+            Suit.WARRIOR: 'warrior'
+        }[self]
+
+    def to_card(self):
+        return {
+            Suit.SPY: SpyCard,
+            Suit.WIZARD: WizardCard,
+            Suit.CONVINCER: ConvincerCard,
+            Suit.WARRIOR: WarriorCard
+        }[self]
+
+    def to_stack(self):
+        return {
+            Suit.SPY: SpyStack,
+            Suit.WIZARD: WizardStack,
+            Suit.CONVINCER: ConvincerStack,
+            Suit.WARRIOR: WarriorStack
+        }[self]
+
+
+class Move(IntEnum):
+    SPY = 0
+    CAPTURE = 1
+    CROSS = 2
+    SOFTEN = 3
+    CONVINCE = 4
+    CURE = 5
+    ATTACK = 6
+    MARTYR = 7
 
 
 class TurnError(Exception):
@@ -16,30 +51,80 @@ class TurnError(Exception):
 
 
 class Game(object):
-    def __init__(self, nplayers):
-        self.nplayers = nplayers
-        self.players = [Player(i, self) for i in range(self.nplayers)]
+    def __init__(self):
+        self.players = []
+        self.started = False
         self.deck = Deck(self)
-        self.turn = 0
-        deal = self.deck.deal(self.nplayers)
+
+    def start(self):
+        if self.started:
+            return
+        deal = self.deck.deal(self.nplayers())
         for suit in deal:
             for i, card in enumerate(deal[suit]):
                 # add card to player i's relevant stack
                 self.players[i].stacks[suit].add_card(card)
+        self.started = True
+        self.turn = 0
+        self.start_turn()
+
+    def add_player(self):
+        id = self.nplayers()
+        self.players.append(Player(id, self))
+        return id
+
+    def start_turn(self):
+        self.challengeable = []
+        self.used = {suit: False for suit in Suit}
+        self.players[self.turn].draw()
 
     def next_turn(self):
-        self.turn = self.turn + 1 if self.turn < self.nplayers else 0
+        if self.started:
+            self.turn = self.turn + 1 if self.turn < self.nplayers() else 0
+            self.start_turn()
 
     def martyr(self, suit):
         for player in self.players:
             player.stacks[suit].empty()
+
+    def nplayers(self):
+        return len(self.players)
+
+    def move_is_challengeable(self, move, source, target):
+        # TODO
+        pass
+
+    def handle_move(self, move, source, target):
+        # TODO
+        pass
+
+    def handle_challenge(self, move, source, target):
+        # TODO
+        pass
+
+    def handle_punish(self, move, source, target):
+        # TODO
+        pass
+
+    def get_state(self):
+        state = {
+            'started': self.started,
+            'deck': self.deck.get_state(),
+            'players': [player.get_state() for player in self.players],
+        }
+        if self.started:
+            state = {**state, **{
+                'turn': self.turn,
+                'challengeable': self.challengeable,
+            }}
+        return state
 
 
 class Player(object):
     def __init__(self, id, game):
         self.id = id
         self.game = game
-        self.stacks = {suit: suit_to_stack[suit](self) for suit in suits}
+        self.stacks = {suit: suit.to_stack()(self) for suit in Suit}
 
     def add_card(self, card):
         self.stacks[card.suit].add_card(card)
@@ -48,26 +133,29 @@ class Player(object):
         new_card = self.game.deck.pop_card()
         self.add_card(new_card)
 
+    def get_state(self):
+        return {
+            str(suit):
+                stack.get_state() for (suit, stack) in self.stacks.items()
+            }
+
 
 class Deck(object):
     '''This class represents the one deck in any game.'''
     def __init__(self, game):
         self.cards = []
-        self.size = 0
         self.game = game
         card_id = 0
-        for suit in suits:
-            for value in range(1, 15):
-                new_card = suit_to_card[suit](value, card_id, self.game)
+        for suit in Suit:
+            for strength in range(1, 15):
+                new_card = suit.to_card()(strength, card_id, self.game)
                 self.cards.append(new_card)
-                self.size += 1
                 card_id += 1
         random.shuffle(self.cards)
 
     def pop_card(self):
-        if self.size > 1:
+        if self.size() > 1:
             card = self.cards.pop()
-            self.size -= 1
             return card
 
     def deal(self, nplayers):
@@ -81,7 +169,6 @@ class Deck(object):
         )
         random.shuffle(remaining)
         self.cards = remaining
-        self.size = len(self.cards)
         return {
             Suit.SPY: spies[:nplayers],
             Suit.WIZARD: wizards[:nplayers],
@@ -89,51 +176,43 @@ class Deck(object):
             Suit.WARRIOR: warriors[:nplayers],
         }
 
+    def size(self):
+        return len(self.cards)
+
+    def get_state(self):
+        return {'size': self.size()}
+
 
 @total_ordering
 class Card(object):
     '''The general class for cards in the game.'''
-    def __init__(self, value, suit, id, game):
+    def __init__(self, strength, suit, id, game):
         self.id = id
         self.game = game
-        self.value = value
+        self.strength = strength
         self.suit = suit
         self.stack = None
         self.shown = False
         self.owner = None
         self.softened = False
 
-    def __add__(self, other):
-        new = self
-        new.value += other.value
-        return new
-
-    def __radd__(self, other):
-        if other is 0:
-            return self
-        else:
-            return self.__add__(other)
-
-    def __sub__(self, other):
-        new = self
-        new.value -= other.value
-        new.value = new.value if new.value >= 0 else 0
-        return new
-
-    def __lt__(self, other):
-        return self.value < other.value
-
-    def __eq__(self, other):
-        return self.value == other.value
-
     def pop_from_stack(self):
         return self.stack.pop_card(self)
+
+    def strength(self):
+        return self.strength
+
+    def get_state(self):
+        return {
+            'strength': self.strength,
+            'softened': self.softened,
+            'shown': self.shown,
+        }
 
 
 class Stack(object):
     '''The general class for stacks of a single suit.'''
     def __init__(self, suit, owner):
-        self.size = 0
         self.owner = owner
         self.suit = suit
         self.cards = []
@@ -151,10 +230,11 @@ class Stack(object):
             return reversed(self.cards[-int(n):])
 
     def strength(self):
-        return sum(self.cards).value
+        return sum([card.strength for card in self.cards])
 
     def sort(self):
-        self.cards.sort().reverse()
+        self.cards.sort()
+        self.cards.reverse()
 
     def add_card(self, card):
         card.stack = self
@@ -164,18 +244,19 @@ class Stack(object):
         self.size += 1
 
     def pop_highest(self):
-        self.cards.pop(0)
-        self.size -= 1
+        return self.cards.pop(0)
 
     def pop_lowest(self):
-        self.cards.pop()
-        self.size -= 1
+        return self.cards.pop()
 
-    def pop_card(self, target_card):
-        for i, card in self.cards:
-            if card is target_card:
-                self.size -= 1
-                return self.cards.pop(i)
+    def pop_card(self, target_card, position=None):
+        if position is None:
+            for i, card in self.cards:
+                if card is target_card:
+                    self.size -= 1
+                    return self.cards.pop(i)
+        else:
+            return self.cards.pop(position)
 
     def has_hidden(self):
         for card in self.cards:
@@ -190,10 +271,16 @@ class Stack(object):
     def is_empty(self):
         return not self.cards
 
+    def get_state(self):
+        return {
+            'strength': self.strength(),
+            'cards': [card.get_state() for card in self.cards]
+        }
+
 
 class SpyCard(Card):
-    def __init__(self, value, id):
-        Card.__init__(self, value, Suit.SPY, id)
+    def __init__(self, strength, id, game):
+        Card.__init__(self, strength, Suit.SPY, id, game)
 
     def capture(self, target_card):
         new_card = target_card.pop_from_stack()
@@ -210,8 +297,8 @@ class SpyStack(Stack):
 
 
 class WizardCard(Card):
-    def __init__(self, value, id):
-        Card.__init__(self, value, Suit.WIZARD, id)
+    def __init__(self, strength, id, game):
+        Card.__init__(self, strength, Suit.WIZARD, id, game)
 
 
 class WizardStack(Stack):
@@ -228,8 +315,8 @@ class WizardStack(Stack):
 
 
 class ConvincerCard(Card):
-    def __init__(self, value, id):
-        Card.__init__(self, value, Suit.CONVINCER, id)
+    def __init__(self, strength, id, game):
+        Card.__init__(self, strength, Suit.CONVINCER, id, game)
 
     def cure(self, target_card):
         target_card.softened = False
@@ -244,8 +331,8 @@ class ConvincerStack(Stack):
 
 
 class WarriorCard(Card):
-    def __init__(self, value, id):
-        Card.__init__(self, value, Suit.WARRIOR, id)
+    def __init__(self, strength, id, game):
+        Card.__init__(self, strength, Suit.WARRIOR, id, game)
 
 
 class WarriorStack(Stack):
@@ -259,18 +346,3 @@ class WarriorStack(Stack):
         self.game.martyr(suit)
         if not self.is_empty():
             self.cards = [self.highest()]
-
-
-suits = [Suit.SPY, Suit.WIZARD, Suit.CONVINCER, Suit.WARRIOR]
-suit_to_card = {
-    Suit.SPY: SpyCard,
-    Suit.WIZARD: WizardCard,
-    Suit.CONVINCER: ConvincerCard,
-    Suit.WARRIOR: WarriorCard
-}
-suit_to_stack = {
-    Suit.SPY: SpyStack,
-    Suit.WIZARD: WizardStack,
-    Suit.CONVINCER: ConvincerStack,
-    Suit.WARRIOR: WarriorStack
-}
