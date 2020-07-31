@@ -1,6 +1,5 @@
 from enum import IntEnum
 import random
-from functools import total_ordering
 
 
 class Suit(IntEnum):
@@ -45,9 +44,11 @@ class Move(IntEnum):
     MARTYR = 7
 
 
-class TurnError(Exception):
-    '''For when an invalid action is taken on a turn.'''
-    pass
+class GameError(Exception):
+    '''For when an invalid or illegal action is taken.'''
+    def __init__(self, message, player=None):
+        self.message = message
+        self.player = player
 
 
 class Game(object):
@@ -74,7 +75,6 @@ class Game(object):
         return id
 
     def start_turn(self):
-        self.challengeable = []
         self.used = {suit: False for suit in Suit}
         self.players[self.turn].draw()
 
@@ -115,7 +115,6 @@ class Game(object):
         if self.started:
             state = {**state, **{
                 'turn': self.turn,
-                'challengeable': self.challengeable,
             }}
         return state
 
@@ -183,7 +182,6 @@ class Deck(object):
         return {'size': self.size()}
 
 
-@total_ordering
 class Card(object):
     '''The general class for cards in the game.'''
     def __init__(self, strength, suit, id, game):
