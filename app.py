@@ -103,6 +103,18 @@ async def connect(sid, environ):
 
 
 @sio.event
+async def change_captain(sid, captain_suit):
+    player = game.players[sid_to_pid[sid]]
+    try:
+        suit = Suit(captain_suit)
+        player.change_suit(suit)
+    except GameError as err:
+        await sio.emit('game_error', err.message, room=sid)
+    except ValueError:
+        await sio.emit('msg_error', "Invalid suit.", room=sid)
+
+
+@sio.event
 async def start_game(sid):
     print("Starting game...")
     game.start()

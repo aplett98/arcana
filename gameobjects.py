@@ -65,7 +65,7 @@ class Move(IntEnum):
 
 
 class GameError(Exception):
-    '''For when an invalid or illegal action is taken.'''
+    """For when an invalid or illegal action is taken."""
     def __init__(self, message, player=None):
         self.message = message
         self.player = player
@@ -218,13 +218,26 @@ class Player(object):
         self.id = id
         self.game = game
         self.stacks = {suit: suit.to_stack()(self) for suit in Suit}
+        self.captain_suit = Suit.SPY
 
     def add_card(self, card):
         self.stacks[card.suit].add_card(card)
 
+    def change_captain(self, captain_suit):
+        if self.game.started and self.turn == self.id:
+            self.captain_suit = captain_suit
+            self.game.next_turn()
+        elif self.game.started:
+            raise GameError(
+                "Not your turn.", self.id
+            )
+        else:
+            self.captain_suit = captain_suit
+
     def draw(self):
         new_card = self.game.deck.pop_card()
-        self.add_card(new_card)
+        if new_card is not None:
+            self.add_card(new_card)
 
     def eliminated(self):
         return all(stack.is_empty() for stack in self.stacks.values())
@@ -238,7 +251,7 @@ class Player(object):
 
 
 class Deck(object):
-    '''This class represents the one deck in any game.'''
+    """This class represents the one deck in any game."""
     def __init__(self, game):
         self.cards = []
         self.game = game
@@ -296,7 +309,7 @@ class Suited():
 
 
 class Card(Suited):
-    '''The general class for cards in the game.'''
+    """The general class for cards in the game."""
     def __init__(self, value, suit, id, game):
         Suited.__init__(self, suit)
         self.id = id
@@ -329,7 +342,7 @@ class Card(Suited):
 
 
 class Stack(Suited):
-    '''The general class for stacks of a single suit.'''
+    """The general class for stacks of a single suit."""
     def __init__(self, suit, owner):
         Suited.__init__(self, suit, owner)
         self.game = self.owner.game
